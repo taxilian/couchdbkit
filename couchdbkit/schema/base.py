@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -
 #
-# This file is part of couchdbkit released under the MIT license. 
+# This file is part of couchdbkit released under the MIT license.
 # See the NOTICE for more information.
 
 """ module that provides a Document object that allows you
@@ -8,12 +8,13 @@ to map CouchDB document in Python statically, dynamically or both
 """
 
 
+import copy
 from . import properties as p
 from .properties import value_to_python, \
 convert_property, MAP_TYPES_PROPERTIES, ALLOWED_PROPERTY_TYPES, \
 LazyDict, LazyList
 from ..exceptions import DuplicatePropertyError, ResourceNotFound, \
-ReservedWordError 
+ReservedWordError
 
 
 __all__ = ['ReservedWordError', 'ALLOWED_PROPERTY_TYPES', 'DocumentSchema',
@@ -89,11 +90,13 @@ class DocumentSchema(object):
     _dynamic_properties = None
     _allow_dynamic_properties = True
     _doc = None
+    _initialDoc = None
     _db = None
 
     def __init__(self, _d=None, **properties):
         self._dynamic_properties = {}
         self._doc = {}
+        self.__initialDoc = {}
 
         if _d is not None:
             if not isinstance(_d, dict):
@@ -102,7 +105,7 @@ class DocumentSchema(object):
 
         doc_type = getattr(self, '_doc_type', self.__class__.__name__)
         self._doc['doc_type'] = doc_type
-        
+
         for prop in self._properties.values():
             if prop.name in properties:
                 value = properties.pop(prop.name)
@@ -130,6 +133,15 @@ class DocumentSchema(object):
                 setattr(self, attr_name, value)
                 # remove the kwargs to speed stuff
                 del properties[attr_name]
+
+    @property
+    def _initialDoc(self):
+        return self.__initialDoc
+
+    @_initialDoc.setter
+    def _initialDoc(self, value):
+        self._doc = value
+        self.__initialDoc = copy.deepcopy(value)
 
     def dynamic_properties(self):
         """ get dict of dynamic properties """
@@ -282,9 +294,7 @@ class DocumentSchema(object):
     def __iter__(self):
         """ iter document instance properties
         """
-        for k in self.all_properties().keys():
-            yield k, self[k]
-        raise StopIteration
+        return ((k, self[k]) for k in self.all_properties().keys())
 
     iteritems = __iter__
 
@@ -308,7 +318,8 @@ class DocumentSchema(object):
     def wrap(cls, data):
         """ wrap `data` dict in object properties """
         instance = cls()
-        instance._doc = data
+        # setting _initialDoc changes _doc and also saves a copy
+        instance._initialDoc = data
         for prop in instance._properties.values():
             if prop.name in data:
                 value = data[prop.name]
@@ -405,14 +416,14 @@ class DocumentBase(DocumentSchema):
 
     def __init__(self, _d=None, **kwargs):
         _d = _d or {}
-        
+
         docid = kwargs.pop('_id', _d.pop("_id", ""))
         docrev = kwargs.pop('_rev', _d.pop("_rev", ""))
-        
-        DocumentSchema.__init__(self, _d, **kwargs)
-        
+
+        super(DocumentBase, self).__init__(_d, **kwargs)
+
         if docid: self._doc['_id'] = valid_id(docid)
-        if docrev: self._doc['_rev'] = docrev            
+        if docrev: self._doc['_rev'] = docrev
 
     @classmethod
     def set_db(cls, db):
@@ -438,8 +449,10 @@ class DocumentBase(DocumentSchema):
         doc = self.to_json()
         db.save_doc(doc, **params)
         if '_id' in doc and '_rev' in doc:
-            self._doc.update(doc)
+            self._initialDoc = doc
         elif '_id' in doc:
+            # under what circumstances does this occur?? Failed save? If so,
+            # why did it not raise an exception?
             self._doc.update({'_id': doc['_id']})
 
     store = save
@@ -462,7 +475,7 @@ class DocumentBase(DocumentSchema):
         if not len(docs_to_save) == len(docs):
             raise ValueError("one of your documents does not have the correct type")
         cls._db.bulk_save(docs_to_save, use_uuids=use_uuids, all_or_nothing=all_or_nothing)
-    
+
     bulk_save = save_docs
 
     @classmethod
@@ -477,7 +490,7 @@ class DocumentBase(DocumentSchema):
     @classmethod
     def get_or_create(cls, docid=None, db=None, dynamic_properties=True, **params):
         """ get  or create document with `docid` """
-       
+
         if db:
             cls._db = db
         cls._allow_dynamic_properties = dynamic_properties
@@ -508,9 +521,9 @@ class DocumentBase(DocumentSchema):
         """
         if self.new_document:
             raise TypeError("the document is not saved")
-        
+
         db = self.get_db()
-        
+
         # delete doc
         db.delete_doc(self._id)
 
@@ -536,7 +549,7 @@ class AttachmentMixin(object):
 
         @return: bool, True if everything was ok.
         """
-        db = self.get_db() 
+        db = self.get_db()
         return db.put_attachment(self._doc, content, name=name,
             content_type=content_type, content_length=content_length)
 
