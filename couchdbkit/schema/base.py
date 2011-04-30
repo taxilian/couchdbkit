@@ -90,13 +90,13 @@ class DocumentSchema(object):
     _dynamic_properties = None
     _allow_dynamic_properties = True
     _doc = None
-    _initialDoc = None
+    __initialDoc = None
     _db = None
 
     def __init__(self, _d=None, **properties):
         self._dynamic_properties = {}
         self._doc = {}
-        self._initialDoc = {}
+        self.__initialDoc = {}
 
         if _d is not None:
             if not isinstance(_d, dict):
@@ -134,12 +134,10 @@ class DocumentSchema(object):
                 # remove the kwargs to speed stuff
                 del properties[attr_name]
 
-    @property
-    def _initialDoc(self):
+    def getInitialDoc(self):
         return self.__initialDoc
 
-    @_initialDoc.setter
-    def _initialDoc(self, value):
+    def setDocument(self, value):
         self._doc = value
         self.__initialDoc = copy.deepcopy(value)
 
@@ -320,7 +318,7 @@ class DocumentSchema(object):
         """ wrap `data` dict in object properties """
         instance = cls()
         # setting _initialDoc changes _doc and also saves a copy
-        instance._initialDoc = data
+        instance.setDocument(data)
 
         for prop in instance._properties.values():
             if prop.name in data:
@@ -444,7 +442,7 @@ class DocumentBase(DocumentSchema):
         doc = self.to_json()
         db.save_doc(doc, **params)
         if '_id' in doc and '_rev' in doc:
-            self._initialDoc = doc
+            self.setDocument(doc)
         elif '_id' in doc:
             self._doc.update({'_id': doc['_id']})
 
